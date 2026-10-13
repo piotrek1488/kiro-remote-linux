@@ -4,6 +4,7 @@
   "description": "Local relay server for Kiro Remote Control",
   "main": "dist/index.js",
   "scripts": {
+    "test": "npm run build && node --test tests/*.test.js",
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",

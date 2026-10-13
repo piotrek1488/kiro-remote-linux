@@ -338,6 +338,17 @@ export class RelayClient {
     console.log(`[kiro-remote] Sending to session ${sessionId}: ${text.substring(0, 50)}`);
     try {
       const { commands } = await import('vscode');
+      // Kiro 1.1.x ids look like "sess_<uuid>"; sendPrompt targets that exact session.
+      // (loadSessionWithPrompt ignores the id there and uses the active chat.)
+      if (sessionId.startsWith('sess_')) {
+        try {
+          await commands.executeCommand('kiroAgent.sessions.sendPrompt', sessionId, text);
+          console.log(`[kiro-remote] Sent to session ${sessionId} via sessions.sendPrompt`);
+          return;
+        } catch (e) {
+          console.log(`[kiro-remote] sessions.sendPrompt failed: ${e}, trying loadSessionWithPrompt`);
+        }
+      }
       // kiroAgent.loadSessionWithPrompt(chatSessionId, prompt) — opens the session and sends the message
       await commands.executeCommand('kiroAgent.loadSessionWithPrompt', sessionId, text);
       console.log(`[kiro-remote] Sent to session ${sessionId} via loadSessionWithPrompt`);

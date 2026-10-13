@@ -109,7 +109,7 @@ async function main() {
     printQRToTerminal(fullTunnelUrl).catch(() => {});
   }).catch((err) => {
     console.warn(`\n⚠️  Cloudflare Tunnel unavailable: ${err.message}`);
-    console.warn('   For remote access, run: brew install cloudflared\n');
+    console.warn('   Install cloudflared for your OS and restart the session. Local WiFi access remains available.\n');
   });
 
   // Graceful shutdown — force exit so the port is freed even with open WS connections.

@@ -4,17 +4,24 @@ Thanks for your interest! Here's everything you need to get started.
 
 ## Platform Note
 
-Kiro Remote Control is currently **macOS-only**. It reads chat session and execution
-log files from `~/Library/Application Support/Kiro/...`, uses `caffeinate` for
-sleep prevention, and `lsof` for port management. Contributions that add
-Windows/Linux support are welcome.
+Kiro Remote Control supports **Ubuntu and macOS**. `storagePaths.ts` resolves
+Linux's `$XDG_CONFIG_HOME/Kiro` (default `~/.config/Kiro`) and macOS's
+`~/Library/Application Support/Kiro`. At activation the extension uses the actual
+`context.globalStorageUri` supplied by Kiro, including custom user-data directories.
+Sleep prevention uses `systemd-inhibit` on Linux and `caffeinate` on macOS.
+Port management requires `lsof`. Cloudflared downloads support x64 and arm64 on
+both platforms. Windows support is not implemented. See [UBUNTU.md](UBUNTU.md).
+
+Run `npm test` in both `extension/` and `relay-server/`. Tests exercise storage
+readers/live updates, inhibitor cleanup, release installation, and relay messaging
+without requiring a running Kiro IDE or a public Cloudflare tunnel.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────┐  ws://127.0.0.1/extension  ┌───────────────────┐
+┌─────────────────────┐  ws://127.0.0.1/extension   ┌───────────────────┐
 │  Kiro IDE Extension │ ◄──────────────────────────►│   Relay Server    │
 │  (extension/)       │   loopback only, no auth    │  (relay-server/)  │
 └──────────┬──────────┘                             └────────┬──────────┘
@@ -86,7 +93,7 @@ push notifications.
 ### Prerequisites
 
 - macOS
-- Node.js 20+
+- Node.js 24+
 - Kiro IDE (for end-to-end testing)
 
 ### 1. Clone

@@ -48,14 +48,12 @@ async function waitReady(ms = 8000) {
 }
 
 // ── 3. Read real Kiro sessions from disk ────────────────────────
-const SESSIONS_BASE = path.join(
-  os.homedir(), 'Library', 'Application Support', 'Kiro', 'User',
-  'globalStorage', 'kiro.kiroagent', 'workspace-sessions'
-);
-const EXEC_BASE = path.join(
-  os.homedir(), 'Library', 'Application Support', 'Kiro', 'User',
-  'globalStorage', 'kiro.kiroagent'
-);
+const configHome = process.env.XDG_CONFIG_HOME;
+const userDataDir = process.env.KIRO_REMOTE_USER_DATA_DIR || (process.platform === 'darwin'
+  ? path.join(os.homedir(), 'Library', 'Application Support', 'Kiro')
+  : path.join(configHome && path.isAbsolute(configHome) ? configHome : path.join(os.homedir(), '.config'), 'Kiro'));
+const EXEC_BASE = path.join(userDataDir, 'User', 'globalStorage', 'kiro.kiroagent');
+const SESSIONS_BASE = path.join(EXEC_BASE, 'workspace-sessions');
 const EXEC_SUBDIR = '414d1636299d2b9e4ce7e17fb11f63e9';
 
 function decodeKey(dir) {

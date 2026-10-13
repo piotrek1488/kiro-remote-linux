@@ -1,6 +1,6 @@
 # Kiro Remote Control
 
-[![Build](https://github.com/hopansh/kiro-remote-control/actions/workflows/build.yml/badge.svg)](https://github.com/hopansh/kiro-remote-control/actions/workflows/build.yml)
+[![Build](https://github.com/piotrek1488/kiro-remote-linux/actions/workflows/build.yml/badge.svg)](https://github.com/piotrek1488/kiro-remote-linux/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Control your [Kiro IDE](https://kiro.dev) from your phone. Browse chat sessions,
@@ -17,29 +17,32 @@ from a mobile PWA that works over WiFi or anywhere via Cloudflare Tunnel.
 - **Background push notifications** — get a push notification when Kiro needs approval, even with the app closed (over the HTTPS tunnel)
 - **Remote access** — Cloudflare Tunnel provides a public HTTPS URL automatically, no account needed
 - **PWA install** — tap "Install for full-screen" in the app banner to add it to your home screen and get a true full-screen experience with no browser address bar
-- **Sleep prevention** — automatically keeps your Mac awake while a session is active via `caffeinate`
+- **Sleep prevention** — keeps your computer awake during a remote session via `caffeinate` (macOS) or `systemd-inhibit` (Ubuntu)
 - **Multi-window** — multiple Kiro workspaces can be open simultaneously; status is aggregated, messages route to the right window
 - **Secure** — token-authenticated WebSocket, rate limiting, timing-safe comparisons, build-verified relay replacement on reinstall
 
 ## Requirements
 
-- macOS (Windows/Linux not yet supported)
+- Ubuntu 22.04/24.04 LTS or macOS (Windows not yet supported)
+- On Ubuntu: `curl`, `lsof`, `tar`, and `systemd-inhibit` (see [Ubuntu setup](UBUNTU.md))
 - [Kiro IDE](https://kiro.dev)
-- Node.js 20+ (for building from source)
+- Node.js 24+ (for building from source)
 - Android or iOS with Chrome/Safari
 
 ## Quick Start
 
+For Ubuntu installation and troubleshooting, see [UBUNTU.md](UBUNTU.md).
+
 ### Install
 
 1. Download `kiro-remote-control-x.y.z.vsix` from [Releases](../../releases).
-2. In Kiro: **Cmd+Shift+P → Extensions: Install from VSIX**.
+2. In Kiro: **Ctrl+Shift+P (Ubuntu) / Cmd+Shift+P (macOS) → Extensions: Install from VSIX**.
 
 ### Connect
 
-1. **Cmd+Shift+P → Kiro Remote: Start Remote Session**
+1. **Ctrl+Shift+P (Ubuntu) / Cmd+Shift+P (macOS) → Kiro Remote: Start Remote Session**
 2. Tap **Show QR** in the notification. Two QR codes appear:
-   - 📶 **Local WiFi** — same network as your Mac
+   - 📶 **Local WiFi** — same network as your computer
    - 🌐 **Cloudflare Tunnel** — any network (ready in ~10s)
 3. Scan the appropriate QR on your phone. Open in Chrome.
 4. Tap the **"Install for full-screen"** banner (or **Add to Home Screen**) to install as a PWA and remove the browser address bar.
@@ -47,7 +50,7 @@ from a mobile PWA that works over WiFi or anywhere via Cloudflare Tunnel.
 ### Optional: enable tool approval via hooks
 
 ```
-Cmd+Shift+P → Kiro Remote: Install Hooks into Workspace
+Ctrl+Shift+P (Ubuntu) / Cmd+Shift+P (macOS) → Kiro Remote: Install Hooks into Workspace
 ```
 
 Copies approval hook scripts into `.kiro/hooks/`. Re-run after each extension update.
@@ -55,18 +58,18 @@ Copies approval hook scripts into `.kiro/hooks/`. Re-run after each extension up
 ## Architecture
 
 ```
-┌────────────────────┐  ws://127.0.0.1/extension  ┌──────────────────┐
+┌────────────────────┐  ws://127.0.0.1/extension   ┌──────────────────┐
 │  Kiro IDE Extension│ ◄──────────────────────────►│  Relay Server    │
-│  (extension/)      │   loopback, no auth          │  (relay-server/) │
+│  (extension/)      │   loopback, no auth         │  (relay-server/) │
 └─────────┬──────────┘                             └───────┬──────────┘
           │                                                │
   Reads session +                            wss://…/mobile?token=X
   execution files                           (token auth, rate-limited)
-  from disk                                              │
-  (disk-driven,                            ┌────────────▼────────────┐
-  reliable)                                │   Mobile PWA            │
-                                           │   (mobile-ui/)          │
-                                           └─────────────────────────┘
+  from disk                                                │
+  (disk-driven,                               ┌────────────▼────────────┐
+  reliable)                                   │   Mobile PWA            │
+                                              │   (mobile-ui/)          │
+                                              └─────────────────────────┘
 ```
 
 The extension spawns a local relay on port 3737 (configurable). On reinstall,
@@ -97,7 +100,7 @@ Rotate it with **Kiro Remote: Reset Session Token** (invalidates old QR codes).
 | `kiroRemote.autoStart` | `false` | Start relay automatically when Kiro opens |
 | `kiroRemote.approvalTimeoutSeconds` | `60` | Seconds before a pending approval auto-denies |
 | `kiroRemote.sessionTimeoutMinutes` | `60` | Minutes a session/QR token stays valid |
-| `kiroRemote.preventSleep` | `true` | Keep your Mac awake via `caffeinate` while a session is active |
+| `kiroRemote.preventSleep` | `true` | Keep your computer awake via `caffeinate` or `systemd-inhibit` |
 
 ## Commands
 
@@ -117,7 +120,7 @@ Rotate it with **Kiro Remote: Reset Session Token** (invalidates old QR codes).
 - The relay log is at `~/.kiro-remote/relay.log` (`tail -f` it for live diagnostics)
 - The tunnel URL changes on every restart; the local URL stays stable as long as your IP doesn't change
 - VAPID keys are persisted to `~/.kiro-remote/vapid.json` — existing push subscriptions survive relay restarts
-- `caffeinate` runs automatically while a session is active; disable with `kiroRemote.preventSleep: false` if you'd rather manage sleep yourself
+- Sleep prevention runs automatically while a session is active; disable with `kiroRemote.preventSleep: false` if you'd rather manage sleep yourself
 
 ## Development
 

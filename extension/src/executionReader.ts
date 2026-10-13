@@ -5,7 +5,7 @@
  * session history. The session history only has "On it." as the assistant
  * message. The real response is in:
  *
- *   ~/Library/Application Support/Kiro/User/globalStorage/
+ *   <Kiro user-data>/User/globalStorage/
  *     kiro.kiroagent/<any-hash>/414d1636299d2b9e4ce7e17fb11f63e9/<file>
  *
  * Each file has { executionId, actions: [...] } where the last action
@@ -17,14 +17,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 
-const KIRO_AGENT_BASE = path.join(
-  os.homedir(),
-  'Library', 'Application Support', 'Kiro', 'User',
-  'globalStorage', 'kiro.kiroagent'
-);
-const EXEC_SUBDIR = '414d1636299d2b9e4ce7e17fb11f63e9';
+import { KIRO_AGENT_BASE, EXEC_SUBDIR } from './executionFiles';
 
 // Cache: executionId -> response text
 const cache = new Map<string, string>();
