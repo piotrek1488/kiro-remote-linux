@@ -4,17 +4,13 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { RelayClient } from './relayClient';
 import { KiroSession } from './types';
 import { decodeWorkspaceKey, extractTextStatic } from './chatWatcher';
 import { randomUUID } from 'crypto';
 
-const KIRO_SESSIONS_BASE = path.join(
-  os.homedir(),
-  'Library', 'Application Support', 'Kiro', 'User',
-  'globalStorage', 'kiro.kiroagent', 'workspace-sessions'
-);
+import { KIRO_SESSIONS_BASE } from './storagePaths';
+import { listV2WorkspaceKeys, listV2Sessions, readV2Messages } from './kiroSessions';
 
 function log(msg: string) {
   const ts = new Date().toISOString().substring(11, 23);
@@ -53,6 +49,36 @@ export class KiroSessionManager {
   }
 
   private readAllSessions(): KiroSession[] {
+    const results = [...this.readCurrentSessions(), ...this.readLegacySessions()];
+    // Sort newest first
+    results.sort((a, b) => b.dateCreated - a.dateCreated);
+    return results;
+  }
+
+  /** Sessions from ~/.kiro/sessions (current Kiro layout). */
+  private readCurrentSessions(): KiroSession[] {
+    const results: KiroSession[] = [];
+    for (const key of listV2WorkspaceKeys()) {
+      for (const s of listV2Sessions(key)) {
+        const messages = readV2Messages(s);
+        const last = messages[messages.length - 1];
+        results.push({
+          sessionId: s.sessionId,
+          title: s.title,
+          workspacePath: s.workspacePath,
+          workspaceName: path.basename(s.workspacePath),
+          workspaceKey: key,
+          dateCreated: s.lastModifiedAt,
+          messageCount: messages.length,
+          lastMessage: last?.text.substring(0, 100),
+        });
+      }
+    }
+    return results;
+  }
+
+  /** Sessions from <user-data>/globalStorage/kiro.kiroagent/workspace-sessions (older Kiro). */
+  private readLegacySessions(): KiroSession[] {
     const results: KiroSession[] = [];
     if (!fs.existsSync(KIRO_SESSIONS_BASE)) return results;
 
@@ -117,8 +143,6 @@ export class KiroSessionManager {
       }
     }
 
-    // Sort newest first
-    results.sort((a, b) => b.dateCreated - a.dateCreated);
     return results;
   }
 }

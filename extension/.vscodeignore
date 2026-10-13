@@ -1,6 +1,8 @@
 # Development files — excluded from the packaged VSIX
 .vscode/**
 .vscode-test/**
+tests/**
+scripts/**
 src/**
 .gitignore
 tsconfig.json

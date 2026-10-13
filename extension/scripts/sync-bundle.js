@@ -2,7 +2,8 @@
 /**
  * sync-bundle.js — runs after `tsc` to:
  *   1. Build the relay server (tsc in relay-server/)
- *   2. Wipe and re-copy relay-server/dist + node_modules → extension/server/
+ *   2. Wipe and re-copy relay-server/dist → extension/server/ and install ONLY its
+ *      production dependencies there (devDependencies such as typescript are ~25 MB)
  *   3. Copy mobile-ui/ → extension/mobile-ui/
  *
  * Run via: npm run build  (which calls: tsc && node scripts/sync-bundle.js)
@@ -51,7 +52,10 @@ const serverDst = path.join(EXT, 'server');
 fs.rmSync(serverDst, { recursive: true, force: true });
 fs.mkdirSync(serverDst);
 copyDir(path.join(ROOT, 'relay-server', 'dist'),         path.join(serverDst, 'dist'));
-copyDir(path.join(ROOT, 'relay-server', 'node_modules'), path.join(serverDst, 'node_modules'));
+// Production dependencies only, installed from the lockfile so versions match the tested ones.
+copyFile(path.join(ROOT, 'relay-server', 'package.json'),      path.join(serverDst, 'package.json'));
+copyFile(path.join(ROOT, 'relay-server', 'package-lock.json'), path.join(serverDst, 'package-lock.json'));
+run('npm ci --omit=dev --ignore-scripts --no-audit --no-fund', serverDst);
 
 // Step 3: Sync mobile-ui into extension/mobile-ui/
 console.log('\n── Syncing mobile-ui into extension/mobile-ui/ ──');

@@ -2,78 +2,77 @@ name: Build
 
 on:
   push:
-    branches: [main]
+    branches: [linux]
   pull_request:
-    branches: [main]
+    branches: [linux]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-relay-server:
-    name: Build Relay Server
-    runs-on: macos-latest
+  build-and-test:
+    name: Build and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
-          cache-dependency-path: relay-server/package-lock.json
-
-      - name: Install dependencies
-        run: npm install
-        working-directory: relay-server
-
-      - name: Build (TypeScript → dist/)
-        run: npm run build
-        working-directory: relay-server
-
-  build-extension:
-    name: Build Extension
-    runs-on: macos-latest
-    # Extension build triggers a relay-server build internally (sync-bundle.js),
-    # so we don't strictly need build-relay-server to finish first — but
-    # depending on it catches relay-side TypeScript errors in their own job.
-    needs: build-relay-server
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node.js (relay-server)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: relay-server/package-lock.json
+          cache-dependency-path: |
+            relay-server/package-lock.json
+            extension/package-lock.json
 
       - name: Install relay-server dependencies
-        run: npm install
+        run: npm ci
         working-directory: relay-server
 
-      - name: Set up Node.js (extension)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: extension/package-lock.json
-
       - name: Install extension dependencies
-        run: npm install
+        run: npm ci
         working-directory: extension
 
-      - name: Full build (compile + sync relay + mobile-ui into bundle)
-        run: npm run build
+      # "npm test" compiles first, so TypeScript errors fail here too.
+      - name: Test relay-server
+        run: npm test
+        working-directory: relay-server
+
+      - name: Test extension
+        run: npm test
         working-directory: extension
+
+      # Runs tsc, syncs relay-server + mobile-ui into the bundle and builds the VSIX.
+      - name: Package extension (VSIX)
+        run: npm run package
+        working-directory: extension
+
+      - name: Upload VSIX
+        if: matrix.os == 'ubuntu-22.04'
+        uses: actions/upload-artifact@v7
+        with:
+          name: kiro-remote-control-vsix
+          path: extension/*.vsix
+          if-no-files-found: error
 
   validate-mobile-ui:
     name: Validate Mobile UI JavaScript
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Syntax-check index.html script block
         run: |

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { RelayClient } from './relayClient';
 import { ApprovalWatcher } from './approvalWatcher';
+import { InteractionWatcher } from './interactionWatcher';
 import { StatusPoller } from './statusPoller';
 import { ChatWatcher } from './chatWatcher';
 import { KiroSessionManager } from './sessionManager';
@@ -11,16 +12,19 @@ import * as path from 'path';
 import * as cp from 'child_process';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
+import { configureKiroStorage, KIRO_AGENT_BASE } from './storagePaths';
+import { SleepPrevention } from './sleepPrevention';
 
 let relayClient: RelayClient | null = null;
 let approvalWatcher: ApprovalWatcher | null = null;
+let interactionWatcher: InteractionWatcher | null = null;
 let statusPoller: StatusPoller | null = null;
 let executionWatcher: ExecutionWatcher | null = null;
 let chatWatchers: ChatWatcher[] = [];
 let kiroSessionManager: KiroSessionManager | null = null;
 let statusBar: StatusBarController | null = null;
 let relayProcess: cp.ChildProcess | null = null;
-let caffeinateProcess: cp.ChildProcess | null = null;
+const sleepPrevention = new SleepPrevention(log);
 let output: vscode.OutputChannel | null = null;
 let currentToken: string | null = null;
 
@@ -73,7 +77,8 @@ function getLocalIP(): string {
 export function activate(context: vscode.ExtensionContext) {
   output = vscode.window.createOutputChannel('Kiro Remote');
   context.subscriptions.push(output);
-  log('Extension activated');
+  configureKiroStorage(context.globalStorageUri.fsPath);
+  log(`Extension activated on ${process.platform}; Kiro agent storage: ${KIRO_AGENT_BASE}`);
 
   statusBar = new StatusBarController();
   context.subscriptions.push(statusBar);
@@ -223,6 +228,9 @@ async function startSession(context: vscode.ExtensionContext) {
   // Start polling for pending approvals
   approvalWatcher = new ApprovalWatcher(relayClient, timeoutSeconds);
   approvalWatcher.start();
+  // Kiro's own tool-approval prompts (~/.kiro/sessions layout)
+  interactionWatcher = new InteractionWatcher(relayClient, timeoutSeconds);
+  interactionWatcher.start();
 
   // Start broadcasting agent status to the phone
   statusPoller = new StatusPoller(relayClient);
@@ -273,8 +281,8 @@ async function startSession(context: vscode.ExtensionContext) {
 
   statusBar?.setConnected(port);
 
-  // Keep the Mac awake while the session is active so the relay stays reachable.
-  startCaffeinate();
+  // Keep the computer awake while the session is active.
+  if (config.get<boolean>('preventSleep', true)) sleepPrevention.start();
 
   const localUrl = `http://${localIp}:${port}/?token=${currentToken}`;
   log(`Local URL: ${localUrl}`);
@@ -291,32 +299,6 @@ async function startSession(context: vscode.ExtensionContext) {
   }
 }
 
-/** Keep macOS awake while the session runs (system + idle sleep). */
-function startCaffeinate() {
-  const config = vscode.workspace.getConfiguration('kiroRemote');
-  if (!config.get<boolean>('preventSleep', true)) return;
-  if (process.platform !== 'darwin') return; // caffeinate is macOS-only
-  if (caffeinateProcess) return;             // already running
-  try {
-    // -i: prevent idle system sleep, -s: prevent system sleep (on AC),
-    // -m: prevent disk idle sleep. The process lives for the whole session.
-    caffeinateProcess = cp.spawn('caffeinate', ['-i', '-s', '-m'], { detached: false });
-    caffeinateProcess.on('error', (err) => log(`caffeinate error: ${err.message}`));
-    caffeinateProcess.on('exit', () => { caffeinateProcess = null; });
-    log(`Sleep prevention ON (caffeinate pid ${caffeinateProcess.pid})`);
-  } catch (e) {
-    log(`Could not start caffeinate: ${e}`);
-  }
-}
-
-/** Allow macOS to sleep again. */
-function stopCaffeinate() {
-  if (!caffeinateProcess) return;
-  try { caffeinateProcess.kill(); log('Sleep prevention OFF'); }
-  catch { /* already gone */ }
-  caffeinateProcess = null;
-}
-
 /** Kill any process bound to the port and WAIT until the port is actually free. */
 async function killStaleServer(port: number): Promise<void> {
   const isAlive = () => fetch(`http://127.0.0.1:${port}/health`).then(() => true).catch(() => false);
@@ -330,7 +312,8 @@ async function killStaleServer(port: number): Promise<void> {
 
   // Kill everything on the port (may be several attempts).
   const killOnce = () => new Promise<void>((resolve) => {
-    cp.exec(`lsof -ti tcp:${port}`, (_err, stdout) => {
+    cp.execFile('lsof', ['-nP', '-t', `-iTCP:${port}`, '-sTCP:LISTEN'], (err, stdout) => {
+      if (err && !stdout) log(`Could not locate relay listener with lsof: ${err.message}`);
       const pids = stdout.split('\n').map(s => s.trim()).filter(Boolean);
       if (pids.length === 0) { resolve(); return; }
       for (const pid of pids) {
@@ -361,7 +344,7 @@ async function killStaleServer(port: number): Promise<void> {
 
 async function stopSession() {
   log('Stopping session…');
-  stopCaffeinate();
+  sleepPrevention.stop();
   statusPoller?.stop();
   statusPoller = null;
   executionWatcher?.stop();
@@ -370,6 +353,8 @@ async function stopSession() {
   kiroSessionManager = null;
   approvalWatcher?.stop();
   approvalWatcher = null;
+  interactionWatcher?.stop();
+  interactionWatcher = null;
   chatWatchers.forEach(w => w.stop());
   chatWatchers = [];
   relayClient?.disconnect();
@@ -516,7 +501,7 @@ async function showQR(context: vscode.ExtensionContext) {
   </div>` : `
   <div class="qr-section">
     <div class="qr-label tunnel">🌐 Cloudflare Tunnel</div>
-    <div class="spinner">⏳ Starting tunnel… (run <code>brew install cloudflared</code> if this takes too long)</div>
+    <div class="spinner">⏳ Starting tunnel… (check Kiro Remote logs and install cloudflared if needed)</div>
   </div>`}
 </body>
 </html>`;

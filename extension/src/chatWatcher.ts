@@ -2,8 +2,12 @@
  * ChatWatcher — reads Kiro's on-disk session files and streams
  * chat history + live updates to the phone via the relay.
  *
- * Storage layout:
- *   ~/Library/Application Support/Kiro/User/globalStorage/
+ * Current Kiro layout (1.1.x): ~/.kiro/sessions/<workspace-hash>/sess_<uuid>/
+ * (session.json + messages.jsonl), see kiroSessions.ts. The legacy layout below
+ * is still read when present.
+ *
+ * Legacy storage layout:
+ *   <Kiro user-data>/User/globalStorage/
  *     kiro.kiroagent/workspace-sessions/<base64(workspacePath)>/
  *       sessions.json          ← list of sessions
  *       <uuid>.json            ← full session data incl. history[]
@@ -11,16 +15,19 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { RelayClient } from './relayClient';
 import { randomUUID } from 'crypto';
 import { getExecutionResponse, buildExecutionCache } from './executionReader';
 
-const KIRO_SESSIONS_BASE = path.join(
-  os.homedir(),
-  'Library', 'Application Support', 'Kiro', 'User',
-  'globalStorage', 'kiro.kiroagent', 'workspace-sessions'
-);
+import { KIRO_SESSIONS_BASE } from './storagePaths';
+import {
+  isV2WorkspaceKey, listV2Sessions, listV2WorkspaceKeys, readV2Messages, findV2Session, V2Session,
+} from './kiroSessions';
+
+/** How many recent messages per session are pushed automatically (older ones load on demand). */
+const V2_PUSH_LIMIT = 100;
+/** How many of the most recently used sessions are pushed automatically. */
+const V2_PUSH_SESSIONS = 3;
 
 export interface ChatMessage {
   id: string;
@@ -57,6 +64,13 @@ export class ChatWatcher {
   }
 
   start() {
+    if (isV2WorkspaceKey(this.workspaceKey)) {
+      this.pollV2();
+      // messages.jsonl is appended to, so a short poll is more reliable than fs.watch.
+      this.pollInterval = setInterval(() => this.pollV2(), 1000);
+      log(`Watching ${this.workspaceKey} (~/.kiro/sessions layout)`);
+      return;
+    }
     if (!fs.existsSync(this.sessionsDir)) {
       log(`Sessions dir not found: ${this.sessionsDir}`);
       log(`Available workspace keys:`);
@@ -91,7 +105,30 @@ export class ChatWatcher {
   /** Re-send all chat history (clears dedupe set). Used when a new phone connects. */
   resendAll() {
     this.sentMessageIds.clear();
-    this.loadAllHistory();
+    if (isV2WorkspaceKey(this.workspaceKey)) this.pollV2();
+    else this.loadAllHistory();
+  }
+
+  /** Push the latest messages of the most recent sessions (current layout). */
+  private pollV2() {
+    try {
+      for (const session of listV2Sessions(this.workspaceKey).slice(0, V2_PUSH_SESSIONS)) {
+        const messages = readV2Messages(session).slice(-V2_PUSH_LIMIT);
+        for (const m of messages) {
+          // Assistant text can grow while a run is in progress; re-send only on change.
+          if (this.sentMessageIds.get(m.id) === m.text) continue;
+          this.sentMessageIds.set(m.id, m.text);
+          this.relay.sendChatMessage({
+            id: m.id,
+            role: m.role,
+            text: m.text,
+            timestamp: m.timestamp,
+            sessionId: session.sessionId,
+            sessionTitle: session.title,
+          });
+        }
+      }
+    } catch (e) { log(`pollV2 error: ${e}`); }
   }
 
   /**
@@ -99,6 +136,24 @@ export class ChatWatcher {
    * and stream its messages to the phone. Uses the actual directory key (no re-encode).
    */
   static loadSessionHistory(relay: RelayClient, workspaceKey: string, sessionId: string) {
+    if (isV2WorkspaceKey(workspaceKey)) {
+      const session: V2Session | undefined = findV2Session(workspaceKey, sessionId);
+      log(`On-demand history for session ${sessionId} (dir=${workspaceKey})`);
+      if (!session) { log('  session not found'); return; }
+      const messages = readV2Messages(session);
+      log(`  streaming ${messages.length} messages`);
+      for (const m of messages) {
+        relay.sendChatMessage({
+          id: m.id,
+          role: m.role,
+          text: m.text,
+          timestamp: m.timestamp,
+          sessionId,
+          sessionTitle: session.title,
+        });
+      }
+      return;
+    }
     const file = path.join(KIRO_SESSIONS_BASE, workspaceKey, `${sessionId}.json`);
     log(`On-demand history for session ${sessionId} (dir=${workspaceKey})`);
     if (!fs.existsSync(file)) { log(`  session file not found: ${file}`); return; }
@@ -243,6 +298,10 @@ export class ChatWatcher {
   /** Returns base64 workspace key for all open workspaces */
   static getAllWorkspaceDirs(): Array<{ path: string; key: string }> {
     const result: Array<{ path: string; key: string }> = [];
+    for (const key of listV2WorkspaceKeys()) {
+      const newest = listV2Sessions(key)[0];
+      if (newest) result.push({ path: newest.workspacePath, key });
+    }
     try {
       const dirs = fs.readdirSync(KIRO_SESSIONS_BASE);
       for (const d of dirs) {

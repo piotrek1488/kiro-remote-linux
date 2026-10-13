@@ -28,7 +28,7 @@ Kiro IDE ──── Extension ──── Relay Server ──── Mobile PW
 ### 1. Start a Remote Session
 
 ```
-Cmd+Shift+P → Kiro Remote: Start Remote Session
+Ctrl+Shift+P (Ubuntu) / Cmd+Shift+P (macOS) → Kiro Remote: Start Remote Session
 ```
 
 The relay server starts and a notification appears in the IDE.
@@ -36,11 +36,11 @@ The relay server starts and a notification appears in the IDE.
 ### 2. Scan the QR Code
 
 ```
-Cmd+Shift+P → Kiro Remote: Show QR Code
+Ctrl+Shift+P (Ubuntu) / Cmd+Shift+P (macOS) → Kiro Remote: Show QR Code
 ```
 
 Two QR codes appear side by side:
-- 📶 **Local WiFi** — use when your phone and Mac are on the same network
+- 📶 **Local WiFi** — use when your phone and computer are on the same network
 - 🌐 **Cloudflare Tunnel** — use from any network, no account needed (starts within ~10s)
 
 Scan with your phone's camera. The mobile app opens immediately.
@@ -48,7 +48,7 @@ Scan with your phone's camera. The mobile app opens immediately.
 ### 3. Install Hooks (optional but recommended)
 
 ```
-Cmd+Shift+P → Kiro Remote: Install Hooks into Workspace
+Ctrl+Shift+P (Ubuntu) / Cmd+Shift+P (macOS) → Kiro Remote: Install Hooks into Workspace
 ```
 
 Installs `.kiro/hooks/` scripts that give you real-time tool approval prompts and
@@ -58,7 +58,7 @@ using your session token — **re-run this command after every extension update*
 ### 4. Stop the Session
 
 ```
-Cmd+Shift+P → Kiro Remote: Stop Remote Session
+Ctrl+Shift+P (Ubuntu) / Cmd+Shift+P (macOS) → Kiro Remote: Stop Remote Session
 ```
 
 ---
@@ -151,8 +151,23 @@ the "Kiro Remote" output panel (`Cmd+Shift+U`) for `[kiro-remote:chat]` log line
 **Hook approvals not working** — Run **Install Hooks into Workspace** again after
 updating the extension. The hooks need the updated authentication logic.
 
-**Tunnel not starting** — Install cloudflared via `brew install cloudflared`,
-then restart the session.
+**Tunnel not starting** — The relay downloads cloudflared for Linux/macOS x64 or
+arm64 automatically using `curl`. Ensure `curl` and `tar` are installed, or install
+cloudflared from Cloudflare's official downloads and restart the session.
+
+**Ubuntu setup** — Install `curl`, `lsof`, `tar`, and `systemd` with your package
+manager. In Kiro, use **Ctrl+Shift+P → Extensions: Install from VSIX**. A separate
+Node.js installation is only needed to build from source. The extension uses
+Kiro's embedded Node runtime. Sleep prevention uses `systemd-inhibit`; if logind
+is unavailable or denies the inhibitor, the session still works and logs the
+failure. You can disable it with `kiroRemote.preventSleep: false`.
+
+**Ubuntu chat storage** — Default: `~/.config/Kiro/User/globalStorage/kiro.kiroagent`.
+`XDG_CONFIG_HOME` is respected; custom data directories are obtained from Kiro's
+storage URI. The resolved path is printed in **Kiro Remote: Show Logs**.
+
+**Local WiFi unreachable** — Check that both devices share a network and that
+Ubuntu's firewall allows the configured relay TCP port from that network.
 
 ---
 
@@ -160,8 +175,24 @@ then restart the session.
 
 ### Chat history (disk-based)
 
+Current Kiro (1.1.x) stores chats under the home directory, on Linux and macOS alike:
+
 ```
-~/Library/Application Support/Kiro/User/
+~/.kiro/sessions/<sha256(workspacePath)[0:16]>/
+  sess_<uuid>/
+    session.json        ← id, title, workspacePaths, createdAt, lastModifiedAt…
+    messages.jsonl      ← one { id, timestamp, payload } per line
+                          payload.type: user, turn_start, assistant (Say / Reasoning),
+                          tool_call, tool_result, turn_end, pending_interaction…
+```
+
+The extension reads only the new lines appended to `messages.jsonl`. `Say` text becomes
+the assistant reply and `Reasoning` the live "thinking" bubble.
+
+Older Kiro versions use:
+
+```
+<Kiro user-data>/User/
   globalStorage/kiro.kiroagent/workspace-sessions/
     <base64(workspacePath)>/
       sessions.json       ← session list (id, title, dateCreated)
@@ -176,7 +207,7 @@ each with an `emittedAt` timestamp. The extension watches these files and stream
 rather than waiting for the full completion.
 
 ```
-~/Library/Application Support/Kiro/User/
+<Kiro user-data>/User/
   globalStorage/kiro.kiroagent/<hash>/414d1636299d2b9e4ce7e17fb11f63e9/
     <execution-uuid>    ← { executionId, actions: [say, model, readFile, …] }
 ```
@@ -192,6 +223,6 @@ can't be called without the token.
 
 ## Privacy
 
-All data stays local. The relay server runs on your Mac and only communicates with your
+All data stays local. The relay server runs on your computer and only communicates with your
 phone. The Cloudflare Tunnel is point-to-point with no data stored by Cloudflare.
 No analytics, no telemetry.
